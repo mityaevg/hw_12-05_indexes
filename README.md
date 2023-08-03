@@ -71,35 +71,28 @@ where date(p.payment_date) = '2005-07-30' and
 <kbd>![](img/sakila_assignment2_original_version.png)</kbd>
 
 - Внесем корректировки в код для оптимизации выполнения запроса:
+
+Создание индекса **idx_payment_date**:
+  
 ```
+CREATE INDEX idx_payment_date ON payment (payment_date);
+```
+
+```
+explain analyze
 select distinct concat(c.last_name, ' ', c.first_name) as 'Клиент', 
-       sum(p.amount) over (partition by c.customer_id) as 'Сумма платежей'
+       sum(p.amount) as 'Сумма платежей'
        -- c.customer_id, f.title, p.amount 
 from payment p inner join 
      rental r on p.rental_id = r.rental_id 
      inner join customer c on r.customer_id = c.customer_id
      inner join inventory i on r.inventory_id = i.inventory_id
-     inner join film f on i.film_id = f.film_id 
-where date(p.payment_date) = '2005-07-30';
-```
-- Запустим **explain analyze** для оптимизированного запроса:
-```
--> Limit: 200 row(s)  (cost=0..0 rows=0) (actual time=30.8..30.9 rows=200 loops=1)
-    -> Table scan on <temporary>  (cost=2.5..2.5 rows=0) (actual time=30.8..30.9 rows=200 loops=1)
-        -> Temporary table with deduplication  (cost=0..0 rows=0) (actual time=30.8..30.8 rows=391 loops=1)
-            -> Window aggregate with buffering: sum(payment.amount) OVER (PARTITION BY c.customer_id )   (actual time=26..30.1 rows=634 loops=1)
-                -> Sort: c.customer_id  (actual time=25.9..26.1 rows=634 loops=1)
-                    -> Stream results  (cost=35448 rows=16086) (actual time=0.174..25.3 rows=634 loops=1)
-                        -> Nested loop inner join  (cost=35448 rows=16086) (actual time=0.166..24.6 rows=634 loops=1)
-                            -> Nested loop inner join  (cost=29818 rows=16086) (actual time=0.16..22.7 rows=634 loops=1)
-                                -> Nested loop inner join  (cost=24187 rows=16086) (actual time=0.154..21.1 rows=634 loops=1)
-                                    -> Nested loop inner join  (cost=18557 rows=16086) (actual time=0.146..19.7 rows=634 loops=1)
-                                        -> Filter: ((cast(p.payment_date as date) = '2005-07-30') and (p.rental_id is not null))  (cost=1633 rows=16086) (actual time=0.129..17.5 rows=634 loops=1)
-                                            -> Table scan on p  (cost=1633 rows=16086) (actual time=0.0972..12.5 rows=16044 loops=1)
-                                        -> Single-row index lookup on r using PRIMARY (rental_id=p.rental_id)  (cost=0.952 rows=1) (actual time=0.00306..0.00311 rows=1 loops=634)
-                                    -> Single-row index lookup on c using PRIMARY (customer_id=r.customer_id)  (cost=0.25 rows=1) (actual time=0.00178..0.00182 rows=1 loops=634)
-                                -> Single-row index lookup on i using PRIMARY (inventory_id=r.inventory_id)  (cost=0.25 rows=1) (actual time=0.00225..0.0023 rows=1 loops=634)
-                            -> Single-row covering index lookup on f using PRIMARY (film_id=i.film_id)  (cost=0.25 rows=1) (actual time=0.00238..0.00244 rows=1 loops=634)
+where payment_date >= '2005-07-30' and payment_date < DATE_ADD('2005-07-30', INTERVAL 1 DAY)
+group by concat(c.last_name, ' ', c.first_name);
 ```
 
-<kbd>![](img/sakila_assignment2_optimized_version.png)</kbd>
+- Результаты запроса **explain analyze**, на которых видно, что индекс **idx_payment_date" используется:
+```
+-> Index range scan on p using idx_payment_date over ('2005-07-30 00:00:00' <= payment_date < '2005-07-31 00:00:00'), with index condition: ((p.payment_date >= TIMESTAMP'2005-07-30 00:00:00') and (p.payment_date < <cache>(('2005-07-30' + interval 1 day))))  (cost=286 rows=634) (actual time=0.0317..1.81 rows=634 loops=1)
+```
+
